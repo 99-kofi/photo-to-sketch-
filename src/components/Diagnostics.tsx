@@ -58,7 +58,7 @@ export function Diagnostics({ data, offlineReady }: Props) {
               : 'estimate unavailable'
           }
         />
-        <Row label="Model source" value={`huggingface.co/${MODEL_REPO} (downloaded once)`} />
+        <Row label="Model source" value={`bundled fp16 · converted from huggingface.co/${MODEL_REPO}`} />
       </div>
     </section>
   );

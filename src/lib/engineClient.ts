@@ -41,7 +41,7 @@ export class EngineClient {
       } else if (msg.type === 'result') {
         const p = this.pendingRuns.get(msg.id);
         this.pendingRuns.delete(msg.id);
-        p?.resolve({ sketch: msg.sketch, side: Number(msg.sha), backend: msg.backend, runMs: msg.runMs });
+        p?.resolve({ sketch: msg.sketch, side: msg.side, backend: msg.backend, runMs: msg.runMs });
       } else if (msg.type === 'error') {
         const err = new Error(msg.message);
         if (msg.runId != null) {
@@ -53,6 +53,9 @@ export class EngineClient {
           for (const w of this.initWaiters) w.reject(err);
           this.initWaiters = [];
         }
+        // GPU died mid-life: the session is toast. Recreate the worker so the
+        // next use (or a fallback re-init) starts with a clean runtime.
+        if (msg.gpuDied) this.reset();
       }
     });
     worker.addEventListener('error', (ev) => {
@@ -71,14 +74,16 @@ export class EngineClient {
   /**
    * Creates (or replaces) the session in the worker. Resolves with backend
    * info. Always resolves with the backend that the worker actually loaded.
+   * `force` overrides the automatic WebGPU preference (used when a previous
+   * run proved the GPU too heavy for this device).
    */
-  init(model: ArrayBuffer, preferWebGPU: boolean): Promise<EngineReady> {
+  init(model: ArrayBuffer, preferWebGPU: boolean, force?: 'webgpu' | 'wasm'): Promise<EngineReady> {
     const worker = this.ensureWorker();
     this.ready = null;
     const promise = new Promise<EngineReady>((resolve, reject) => {
       this.initWaiters.push({ resolve, reject });
     });
-    const req: WorkerRequest = { type: 'init', model, preferWebGPU };
+    const req: WorkerRequest = { type: 'init', model, preferWebGPU, ...(force ? { force } : {}) };
     worker.postMessage(req, [model]);
     return promise;
   }
@@ -94,6 +99,13 @@ export class EngineClient {
     const req: WorkerRequest = { type: 'run', id, rgba: buf };
     worker.postMessage(req, [buf]);
     return promise;
+  }
+
+  /** Tears the worker down without rejecting anything (GPU died mid-run). */
+  private reset(): void {
+    this.worker?.terminate();
+    this.worker = null;
+    this.ready = null;
   }
 
   dispose(): void {

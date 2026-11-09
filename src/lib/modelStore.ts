@@ -3,7 +3,7 @@
  * progress-tracked, resumable download and caches it in IndexedDB so the app
  * works offline after a single setup.
  */
-import { MODEL_SIZE, MODEL_SHA256, MODEL_FILE, MODEL_REVISION, modelUrl } from './modelConfig';
+import { MODEL_SIZE, MODEL_SHA256, MODEL_FILE, MODEL_FILE_FP32, MODEL_REVISION, modelUrl } from './modelConfig';
 
 const DB_NAME = 'sketch-studio';
 const DB_VERSION = 1;
@@ -95,6 +95,24 @@ export async function deleteModel(): Promise<void> {
   }
 }
 
+/**
+ * Removes caches of the retired fp32 variant so early adopters do not carry a
+ * dead 118 MB blob alongside the fp16 file. Best-effort.
+ */
+export async function pruneLegacyModel(): Promise<void> {
+  if ((MODEL_FILE_FP32 as string) === MODEL_FILE) return;
+  try {
+    await withStore(STORE_BLOB, 'readwrite', (s) => {
+      s.delete(MODEL_FILE_FP32);
+    });
+    await withStore(STORE_META, 'readwrite', (s) => {
+      s.delete(MODEL_FILE_FP32);
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Ask the browser to keep our storage; called before a big download. */
 async function requestPersistence(): Promise<boolean> {
   try {
@@ -155,6 +173,7 @@ function mergeBuffers(buffers: ArrayBuffer[], total: number): ArrayBuffer {
  */
 export async function downloadModel(onProgress: (p: DownloadProgress) => void): Promise<DownloadOutcome> {
   if (await getModelMeta()) return 'exists';
+  await pruneLegacyModel();
 
   const url = modelUrl();
   const bustUrl = new URL(url, window.location.href); // resolve relative base (dev/GH Pages)
@@ -177,7 +196,7 @@ export async function downloadModel(onProgress: (p: DownloadProgress) => void): 
 
     const merged = mergeBuffers(parts, received);
 
-    // Verify the digest. Digesting 118 MB can fail on very constrained
+    // Verify the digest. Digesting 62 MB can fail on very constrained
     // devices — best-effort: a failed digest does not invalidate the file.
     let sha256: string | null = null;
     try {

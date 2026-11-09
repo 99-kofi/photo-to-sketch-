@@ -17,6 +17,8 @@ export type WorkerRequest =
       type: 'init';
       model: ArrayBuffer;
       preferWebGPU: boolean;
+      /** Optional explicit backend override (used after GPU failures). */
+      force?: 'webgpu' | 'wasm';
     }
   | {
       type: 'run';
@@ -35,7 +37,7 @@ export type WorkerResponse =
       type: 'result';
       id: number;
       sketch: Float32Array;
-      sha: string;
+      side: number;
       backend: string;
       runMs: number;
     }
@@ -43,6 +45,8 @@ export type WorkerResponse =
       type: 'error';
       message: string;
       fatal: boolean;
+      /** Classified GPU failure — the client should restart with WASM. */
+      gpuDied?: boolean;
       runId?: number;
     };
 
@@ -80,9 +84,31 @@ function toChwFloat32(rgba: Uint8ClampedArray): Float32Array {
   return out;
 }
 
-function report(message: string, fatal: boolean, ev: unknown, runId?: number) {
+function report(
+  message: string,
+  fatal: boolean,
+  ev: unknown,
+  runId?: number,
+  gpuDied = false,
+) {
   const detail = ev instanceof Error ? ev.message : typeof ev === 'string' ? ev : '';
-  w.postMessage({ type: 'error', message: detail ? `${message}: ${detail}` : message, fatal, ...(runId !== undefined ? { runId } : {}) });
+  w.postMessage({
+    type: 'error',
+    message: detail ? `${message}: ${detail}` : message,
+    fatal,
+    ...(gpuDied ? { gpuDied: true } : {}),
+    ...(runId !== undefined ? { runId } : {}),
+  });
+}
+
+/**
+ * Classifies the runtime failures that indicate the GPU execution provider is
+ * no longer usable (WebGPU device lost / process killed mid-run). Those must
+ * route back to the CPU backend instead of bricking the engine.
+ */
+function isGpuDeath(err: unknown): boolean {
+  const m = err instanceof Error ? `${err.message} ${err.stack ?? ''}` : String(err);
+  return /mapAsync|device (lost|destroyed)|GPUBuffer|-webgpu-\|ERR/i.test(m);
 }
 
 async function init(req: Extract<WorkerRequest, { type: 'init' }>): Promise<void> {
@@ -102,7 +128,9 @@ async function init(req: Extract<WorkerRequest, { type: 'init' }>): Promise<void
     runtime.env.wasm.numThreads = threads();
     runtime.env.logLevel = 'warning';
 
-    const wantWebGPU = req.preferWebGPU && typeof (navigator as { gpu?: unknown }).gpu !== 'undefined';
+    // Backend selection: explicit force override wins, then prefer flag.
+    const requested: 'webgpu' | 'wasm' = req.force ?? (req.preferWebGPU ? 'webgpu' : 'wasm');
+    const wantWebGPU = requested === 'webgpu' && typeof (navigator as { gpu?: unknown }).gpu !== 'undefined';
 
     const trySession = async (eps: string[]) =>
       await runtime.InferenceSession.create(req.model, {
@@ -155,14 +183,17 @@ async function run(req: Extract<WorkerRequest, { type: 'run' }>): Promise<void> 
         type: 'result',
         id: req.id,
         sketch,
-        sha: `${side}`,
+        side,
         backend: activeBackend,
         runMs: elapsed,
       },
       [sketch.buffer],
     );
   } catch (err) {
-    report('Inference failed', false, err, req.id);
+    // GPU failures are recoverable: mark them so the client restarts us on
+    // the CPU backend. Everything else is a normal run error.
+    if (activeBackend === 'webgpu' && isGpuDeath(err)) session = null;
+    report('Inference failed', false, err, req.id, activeBackend === 'webgpu' && isGpuDeath(err));
   }
 }
 
@@ -172,5 +203,16 @@ w.addEventListener('message', (ev) => {
     void init(req);
   } else if (req.type === 'run') {
     void run(req);
+  }
+});
+
+// If the GPU dies asynchronously (device-lost handlers firing outside an
+// awaited session.run), tell the client before the module goes quiet —
+// otherwise the only symptom is a hung or reload-crashed page.
+self.addEventListener('unhandledrejection', (ev) => {
+  const reason = (ev as PromiseRejectionEvent & { reason?: unknown }).reason;
+  if (isGpuDeath(reason)) {
+    report('WebGPU device was lost', false, reason, undefined, true);
+    session = null;
   }
 });

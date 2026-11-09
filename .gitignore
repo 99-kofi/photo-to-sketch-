@@ -15,7 +15,9 @@ dev-dist
 
 # Large binaries restored by scripts/copy-ort.mjs and manual download
 public/ort/
-public/models/
+public/models/*
+# The converted fp16 model IS shipped with the app (62 MB, under GitHub's cap)
+!public/models/model.fp16.onnx
 
 # Editor directories and files
 .vscode/*

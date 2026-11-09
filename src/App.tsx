@@ -18,6 +18,11 @@ import { MODEL_SIZE } from './lib/modelConfig';
 
 const DEFAULT_RENDER: RenderOptions = { flip: true, strength: 100, mode: 'paper' };
 
+/** Persisted backend override (native CryptoKeys-free LocalStorage contract). */
+const BACKEND_KEY = 'sketch.backend';
+/** Written when a generation starts, removed when it completes. */
+const LAST_GEN_KEY = 'sketch.lastGen';
+
 /** Sections reachable from the sticky menu. Each tab renders only its card. */
 type MenuTab = 'workspace' | 'setup' | 'results' | 'diag';
 
@@ -55,6 +60,21 @@ export default function App() {
   useEffect(() => {
     if (tab === 'results' && !(result && image)) setTab('workspace');
   }, [tab, result, image]);
+
+  /* ---------------- crash recovery ---------------- */
+
+  // If a previous page life crashed during generation, the tab died before it
+  // could clean up: `sketch.lastGen` survives the reload, a completed run
+  // erases it. On boot we treat a fresh marker as a renderer crash (the GPU
+  // engine exceeding this device's memory) and pin the safe CPU engine.
+  useEffect(() => {
+    const last = Number(localStorage.getItem(LAST_GEN_KEY));
+    localStorage.removeItem(LAST_GEN_KEY);
+    if (last && Date.now() - last < 120_000) {
+      localStorage.setItem(BACKEND_KEY, 'wasm');
+      push('Recovered after a memory crash — switching to the low-memory CPU engine.', 'info');
+    }
+  }, [push]);
 
   /* ---------------- environment state ---------------- */
 
@@ -168,23 +188,25 @@ export default function App() {
 
   /** Boots (or re-targets) the inference worker for the chosen backend. */
   const ensureEngine = useCallback(
-    async (preferWebGPU: boolean): Promise<EngineClient> => {
+    async (preferWebGPU: boolean, force?: 'webgpu' | 'wasm'): Promise<EngineClient> => {
       const buffer = await getModelBuffer();
       if (!buffer) throw new Error('The sketch model is not installed yet — download it under “Model setup” first.');
 
-      // Switch worker when the backend preference cannot be honoured.
-      const wantWebGPU = preferWebGPU && webgpuAvailable;
+      // Backend selection: explicit force > persisted pin (after GPU crashes)
+      // > runtime preference.
+      const wantBackend: 'webgpu' | 'wasm' =
+        force ?? (localStorage.getItem(BACKEND_KEY) === 'wasm' ? 'wasm' : preferWebGPU && webgpuAvailable ? 'webgpu' : 'wasm');
+
+      // Replace the worker when the loaded backend no longer matches.
       const current = engineRef.current;
-      if (current && current.ready && wantWebGPU && current.ready.backend !== 'webgpu') {
+      if (current && current.ready && current.ready.backend !== wantBackend) {
         current.dispose();
         engineRef.current = null;
       }
       const client = engineRef.current ?? (engineRef.current = new EngineClient());
 
-      if (client.ready && (!wantWebGPU || client.ready.backend === 'webgpu')) {
-        return client; // already loaded with the desired backend
-      }
-      const info = await client.init(buffer, wantWebGPU);
+      if (client.ready && client.ready.backend === wantBackend) return client;
+      const info = await client.init(buffer, wantBackend === 'webgpu', wantBackend);
       setEngineReady(info);
       return client;
     },
@@ -235,15 +257,43 @@ export default function App() {
     setElapsedMs(0);
     const started = performance.now();
     const timer = window.setInterval(() => setElapsedMs(Math.round(performance.now() - started)), 100);
+    // Marker for the crash-recovery effect: a page death during this window
+    // (renderer OOM under the GPU engine) is detected and pinned to WASM on
+    // next launch. Cleared on success and on failure below.
+    localStorage.setItem(LAST_GEN_KEY, String(Date.now()));
     try {
       const engine = await ensureEngine(true);
       const res = await engine.run(image.prepared.cropRgba);
       const flipAuto = detectOrientation(res.sketch, res.side);
       setRenderOptions((o) => ({ ...o, flip: flipAuto }));
       setResult({ sketch: res.sketch, side: res.side, run: { backend: res.backend, runMs: res.runMs, at: Date.now() } });
+      localStorage.removeItem(LAST_GEN_KEY);
       setTab('results'); // jump straight to the fresh sketch
     } catch (err) {
-      push(`Generation failed: ${(err as Error).message}`, 'error');
+      const message = (err as Error).message;
+      // A dead/failing GPU engine downgrades permanently to the CPU engine —
+      // once per session it silently retries there.
+      if (engineRef.current?.ready?.backend === 'webgpu') {
+        engineRef.current.dispose();
+        engineRef.current = null;
+        localStorage.setItem(BACKEND_KEY, 'wasm');
+        push('The GPU engine hit a memory limit — retrying on the CPU engine.', 'info');
+        try {
+          const cpuEngine = await ensureEngine(false, 'wasm');
+          const res = await cpuEngine.run(image.prepared.cropRgba);
+          const flipAuto = detectOrientation(res.sketch, res.side);
+          setRenderOptions((o) => ({ ...o, flip: flipAuto }));
+          setResult({ sketch: res.sketch, side: res.side, run: { backend: res.backend, runMs: res.runMs, at: Date.now() } });
+          localStorage.removeItem(LAST_GEN_KEY);
+          setTab('results');
+        } catch (err2) {
+          localStorage.removeItem(LAST_GEN_KEY);
+          push(`Generation failed: ${(err2 as Error).message}`, 'error');
+        }
+      } else {
+        localStorage.removeItem(LAST_GEN_KEY);
+        push(`Generation failed: ${message}`, 'error');
+      }
     } finally {
       window.clearInterval(timer);
       setRunning(false);
@@ -335,9 +385,6 @@ export default function App() {
         {tab === 'setup' && (
           <ModelSetup
             state={modelState}
-            persisted={persisted}
-            storageUsage={storageUsage}
-            storageQuota={storageQuota}
             onDownload={() => void runDownload()}
             onDelete={() => void removeModel()}
             busy={modelState.stage === 'downloading'}

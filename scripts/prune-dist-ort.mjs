@@ -1,7 +1,7 @@
 // Removes the unused hashed ORT .wasm asset the bundler emits. At runtime the
 // ORT engine always resolves its runtime binary through wasmPaths=/ort/ (see
 // src/worker/engineWorker.ts), so this hashed copy is dead weight in dist.
-import { readdirSync, unlinkSync, rmSync } from 'node:fs';
+import { readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 const dist = join(process.cwd(), 'dist', 'assets');
@@ -13,9 +13,10 @@ try {
       removed++;
     }
   }
-  // public/models is dev-only; never ship the 118 MB duplicate in dist.
+  // public/models ships exactly one file: the committed fp16 model. Drop the
+  // dev-only fp32 duplicate from dist.
   try {
-    rmSync(join(process.cwd(), 'dist', 'models'), { recursive: true, force: true });
+    unlinkSync(join(process.cwd(), 'dist', 'models', 'model.onnx'));
     removed++;
   } catch {
     /* not present */

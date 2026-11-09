@@ -1,43 +1,42 @@
-import { formatBytes, MODEL_REPO, MODEL_SIZE } from '../lib/modelConfig';
+import { formatBytes, MODEL_SIZE } from '../lib/modelConfig';
 import type { ModelState } from '../lib/types';
 
 interface Props {
   state: ModelState;
-  persisted: boolean;
-  storageUsage: number | null;
-  storageQuota: number | null;
   onDownload: () => void;
   onDelete: () => void;
   busy: boolean;
 }
 
+/**
+ * The setup card is where every user is forced through. It deliberately shows
+ * only plain-language, one-time-install information — file names, digests,
+ * sizes and storage details live in the Diagnostics tab instead.
+ */
 function pct(received: number, total: number): number {
   if (!total) return 0;
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-export function ModelSetup({ state, persisted, storageUsage, storageQuota, onDownload, onDelete, busy }: Props) {
+export function ModelSetup({ state, onDownload, onDelete, busy }: Props) {
   let body: React.ReactNode;
   let statusLabel = '';
 
   switch (state.stage) {
     case 'checking':
-      statusLabel = 'Checking cache…';
-      body = <p className="muted">Looking for a previously downloaded model…</p>;
+      statusLabel = 'Preparing…';
+      body = <p className="muted">Getting things ready…</p>;
       break;
     case 'missing':
-      statusLabel = 'Not installed';
+      statusLabel = 'One-time setup';
       body = (
         <>
           <p className="muted">
-            One-time download of the U-Net sketch model from{' '}
-            <a href={`https://huggingface.co/${MODEL_REPO}`} target="_blank" rel="noreferrer">
-              {MODEL_REPO}
-            </a>
-            . After this, everything runs on your device — even offline.
+            The sketch engine is downloaded once and saved on your device. After that the app
+            works on its own — even fully offline, and nothing is ever uploaded.
           </p>
           <button className="btn btn--primary" onClick={onDownload} disabled={busy}>
-            Download model · {formatBytes(MODEL_SIZE)}
+            Get set up · downloads {formatBytes(MODEL_SIZE)}, once
           </button>
         </>
       );
@@ -48,8 +47,8 @@ export function ModelSetup({ state, persisted, storageUsage, storageQuota, onDow
         <>
           <progress max={100} value={pct(state.received, state.total)} />
           <p className="muted">
-            {formatBytes(state.received)} / {formatBytes(state.total)} ({pct(state.received, state.total)}%)
-            {persisted ? ' · storage persistent' : ''}
+            {pct(state.received, state.total)}% — your photos stay untouched; the app is just
+            installing its sketch engine.
           </p>
         </>
       );
@@ -58,21 +57,20 @@ export function ModelSetup({ state, persisted, storageUsage, storageQuota, onDow
       statusLabel = 'Download failed';
       body = (
         <>
-          <p className="error-text">{state.message}</p>
+          <p className="error-text">Something interrupted the download. Tap retry to continue where it left off.</p>
           <button className="btn btn--primary" onClick={onDownload} disabled={busy}>
-            Retry download
+            Retry
           </button>
         </>
       );
       break;
     case 'ready':
-      statusLabel = 'Ready for offline use ✓';
+      statusLabel = 'Ready ✓';
       body = (
         <>
           <p className="muted">
-            Model cached locally ({formatBytes(state.meta.size)}
-            {state.meta.sha256 == null ? ', size-verified only' : ', SHA-256 verified'} ·{' '}
-            {new Date(state.meta.downloadedAt).toLocaleDateString()}).
+            All set. You can sketch photos anytime — no internet needed, and no image ever
+            leaves your device.
           </p>
           <button className="btn btn--ghost" onClick={onDelete} disabled={busy}>
             Remove from device
@@ -93,14 +91,6 @@ export function ModelSetup({ state, persisted, storageUsage, storageQuota, onDow
         </span>
       </header>
       <div className="card__body">{body}</div>
-      <footer className="card__foot muted">
-        {storageQuota != null && (
-          <>
-            Device storage: {formatBytes(storageUsage)} used of {formatBytes(storageQuota)} available
-            {persisted ? ' · persistent' : ' · best-effort'}
-          </>
-        )}
-      </footer>
     </section>
   );
 }
