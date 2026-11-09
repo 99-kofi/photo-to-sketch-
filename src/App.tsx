@@ -15,6 +15,7 @@ import {
 } from './lib/modelStore';
 import type { DiagnosticsData, ModelState, SketchResult, SourceImageState } from './lib/types';
 import { MODEL_SIZE } from './lib/modelConfig';
+import { initInstallCapture, onInstallable, promptInstall } from './lib/installPrompt';
 
 const DEFAULT_RENDER: RenderOptions = { flip: true, strength: 100, mode: 'paper' };
 
@@ -35,6 +36,24 @@ export default function App() {
   const [persisted, setPersisted] = useState(false);
   const [storageUsage, setStorageUsage] = useState<number | null>(null);
   const [storageQuota, setStorageQuota] = useState<number | null>(null);
+
+  /* ---------------- install-as-app (add to home screen) ---------------- */
+
+  const [installable, setInstallable] = useState(false);
+  const install = useCallback(async () => {
+    const outcome = await promptInstall();
+    if (outcome === 'unavailable') {
+      push('Your browser does not expose an install prompt — use the browser menu → “Install app”.', 'info');
+    }
+  }, [push]);
+  useEffect(() => {
+    const stopCapture = initInstallCapture();
+    const stopSubscribe = onInstallable(setInstallable);
+    return () => {
+      stopCapture();
+      stopSubscribe();
+    };
+  }, []);
 
   /* ---------------- workspace state ---------------- */
 
@@ -388,6 +407,8 @@ export default function App() {
             onDownload={() => void runDownload()}
             onDelete={() => void removeModel()}
             busy={modelState.stage === 'downloading'}
+            installable={installable}
+            onInstall={() => void install()}
           />
         )}
 

@@ -1,4 +1,5 @@
 import { formatBytes, MODEL_SIZE } from '../lib/modelConfig';
+import { isAppleMobile, isStandalone } from '../lib/installPrompt';
 import type { ModelState } from '../lib/types';
 
 interface Props {
@@ -6,6 +7,9 @@ interface Props {
   onDownload: () => void;
   onDelete: () => void;
   busy: boolean;
+  /** The browser has offered its native install prompt (captured ready). */
+  installable: boolean;
+  onInstall: () => void;
 }
 
 /**
@@ -18,7 +22,41 @@ function pct(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-export function ModelSetup({ state, onDownload, onDelete, busy }: Props) {
+export function ModelSetup({ state, onDownload, onDelete, busy, installable, onInstall }: Props) {
+  const standalone = isStandalone();
+  const apple = isAppleMobile();
+
+  /**
+   * The "install as an app" row. Hidden once the app already runs from a
+   * home-screen icon; on iOS it becomes 1-2-3 instructions since Safari does
+   * not expose a programmatic install prompt.
+   */
+  let installRow: React.ReactNode = null;
+  if (!standalone) {
+    installRow =
+      apple ? (
+        <div className="setup-install">
+          <p className="muted">
+            Want it like a regular app? In <strong>Safari</strong>, tap the <strong>Share</strong> button,
+            then <strong>Add to Home Screen</strong> — it opens full-screen and works offline.
+          </p>
+        </div>
+      ) : (
+        <div className="setup-install">
+          {installable ? (
+            <button className="btn btn--ghost" onClick={onInstall} disabled={busy}>
+              Add to home screen — installs as an app
+            </button>
+          ) : (
+            <p className="muted">
+              Tip: use your browser menu → “Install app” / “Add to Home screen” to keep Sketch Studio on
+              your home screen, opening like a normal app and working offline.
+            </p>
+          )}
+        </div>
+      );
+  }
+
   let body: React.ReactNode;
   let statusLabel = '';
 
@@ -91,6 +129,7 @@ export function ModelSetup({ state, onDownload, onDelete, busy }: Props) {
         </span>
       </header>
       <div className="card__body">{body}</div>
+      {installRow && <div className="card__body setup-install">{installRow}</div>}
     </section>
   );
 }

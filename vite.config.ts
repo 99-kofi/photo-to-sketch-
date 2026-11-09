@@ -32,10 +32,11 @@ export default defineConfig({
         name: 'Sketch Studio — Photo to Sketch, On-Device',
         short_name: 'Sketch Studio',
         description:
-          'Turn photos into line-art sketches entirely on your device. Powered by a U-Net ONNX model running in your browser with ONNX Runtime Web. No uploads, works offline.',
+          'Turn photos into line-art sketches entirely on your device. Nothing is uploaded, and once installed it works offline.',
         start_url: BASE_PATH,
         scope: BASE_PATH,
         display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
         orientation: 'portrait',
         background_color: '#0b0d12',
         theme_color: '#0b0d12',

@@ -223,6 +223,15 @@ a:hover {
   font-size: 0.82rem;
 }
 
+/* Install-as-app row: visually a lighter follow-on step in the Setup card. */
+.setup-install {
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--card-edge);
+}
+.setup-install p {
+  margin: 0;
+}
+
 .badge {
   font-size: 0.76rem;
   color: var(--muted);
