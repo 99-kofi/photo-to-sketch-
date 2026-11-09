@@ -16,6 +16,37 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>You need JavaScript for the on-device sketch engine.</noscript>
+    <script>
+      // Stale-shell recovery: if the app bundle never mounts (service worker
+      // precache pointing at chunks that no longer exist, offline install
+      // glitch, etc.) the page would be silently blank. Surface a fix.
+      window.setTimeout(function () {
+        if (document.getElementById('root').childElementCount > 0) return;
+        var n = document.createElement('div');
+        n.style.cssText =
+          'position:fixed;inset:auto 1rem 1rem;z-index:99;background:#161327;color:#eceaf6;' +
+          'font:600 14px system-ui,sans-serif;border:1px solid #ffffff20;border-radius:12px;' +
+          'padding:0.8rem 1rem;box-shadow:0 12px 30px rgba(0,0,0,.5)';
+        n.innerHTML =
+          'Sketch Studio failed to load — usually a stale offline cache.<br>' +
+          '<button id="__ss_fix" style="margin-top:8px;padding:0.5em 1em;border-radius:8px;' +
+          'border:0;background:#a78bfa;color:#161327;font:inherit;font-weight:700">Fix and reload</button>';
+        document.body.appendChild(n);
+        document.getElementById('__ss_fix').onclick = function () {
+          if (navigator.serviceWorker) {
+            navigator.serviceWorker.getRegistrations().then(function (rs) {
+              rs.forEach(function (r) { r.unregister(); });
+              return caches.keys();
+            }).then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); }).finally(function () {
+              window.location.reload();
+            });
+          } else {
+            window.location.reload();
+          }
+        };
+      }, 4000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

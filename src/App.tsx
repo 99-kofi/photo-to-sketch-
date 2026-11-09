@@ -4,6 +4,7 @@ import { Workspace } from './components/Workspace';
 import { ResultsStudio } from './components/ResultsStudio';
 import { Diagnostics } from './components/Diagnostics';
 import { Toasts } from './components/Toasts';
+import { SmokeyBackground } from './components/SmokeyBackground';
 import { useToasts } from './hooks/useToasts';
 import { EngineClient, type EngineReady } from './lib/engineClient';
 import { prepareImage, detectOrientation, type RenderOptions } from './lib/imageTools';
@@ -341,6 +342,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <SmokeyBackground />
       <Toasts toasts={toasts} onDismiss={dismiss} />
       <header className="hero">
         <h1>

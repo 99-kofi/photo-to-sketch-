@@ -2,17 +2,21 @@
 
 :root {
   --bg: #0b0d12;
-  --bg-soft: #12151d;
-  --card: #161a24;
-  --card-edge: #232a3a;
-  --text: #e8ecf6;
-  --muted: #97a1b8;
-  --accent: #60dcbe;
-  --accent-soft: rgba(96, 220, 190, 0.14);
+  --bg-soft: rgba(255, 255, 255, 0.05);
+  --card: rgba(26, 23, 48, 0.62);
+  --card-solid: #161a24;
+  --card-edge: rgba(255, 255, 255, 0.09);
+  --text: #eceaf6;
+  --muted: #9a97b8;
+  --accent: #a78bfa;
+  --accent-strong: #d6c9ff;
+  --accent-soft: rgba(167, 139, 250, 0.16);
+  --accent-line: rgba(167, 139, 250, 0.45);
+  --pink: #f472b6;
   --danger: #ff7a7a;
   --ok: #5fd39a;
-  --radius: 14px;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --radius: 16px;
+  --shadow: 0 18px 44px rgba(5, 3, 20, 0.5);
   font-size: 16px;
 }
 
@@ -28,10 +32,8 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(1200px 500px at 80% -10%, rgba(96, 156, 220, 0.08), transparent),
-    radial-gradient(900px 420px at 10% -5%, rgba(96, 220, 190, 0.07), transparent),
-    var(--bg);
+  /* The smoky WebGL layer paints over this; it is the no-WebGL fallback. */
+  background: var(--bg);
   color: var(--text);
   font-family:
     'Inter',
@@ -69,18 +71,25 @@ a:hover {
   max-width: 980px;
   margin: 0 auto;
   padding: 0 1rem calc(3rem + env(safe-area-inset-bottom));
+  /* Sit above the fixed smoke background (positioned, z-index 0). */
+  position: relative;
+  z-index: 1;
 }
 
 .hero {
-  padding: 2.2rem 0.2rem 1.4rem;
+  padding: 2.6rem 0.2rem 1.5rem;
 }
 .hero h1 {
   margin: 0;
-  font-size: clamp(1.7rem, 5vw, 2.4rem);
+  font-size: clamp(1.9rem, 5.5vw, 2.7rem);
   letter-spacing: -0.02em;
+  text-shadow: 0 2px 28px rgba(7, 4, 25, 0.65);
 }
 .hero__accent {
-  color: var(--accent);
+  background: linear-gradient(92deg, var(--accent) 10%, var(--pink) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .hero__sub {
   margin: 0.4rem 0 0.8rem;
@@ -91,6 +100,10 @@ a:hover {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+.hero__badges .badge {
+  background: rgba(11, 9, 27, 0.5);
+  backdrop-filter: blur(8px);
 }
 
 .main {
@@ -107,10 +120,12 @@ a:hover {
   gap: 0.35rem;
   margin: -0.4rem 0 1.15rem;
   padding: 0.35rem;
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  background: rgba(12, 10, 26, 0.55);
   border: 1px solid var(--card-edge);
-  border-radius: 12px;
-  backdrop-filter: blur(10px);
+  border-radius: 14px;
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: var(--shadow);
   position: sticky;
   top: calc(0.5rem + env(safe-area-inset-top));
   z-index: 20;
@@ -136,7 +151,7 @@ a:hover {
   color: var(--text);
 }
 .menu__btn--on {
-  color: var(--accent);
+  color: var(--accent-strong);
   background: var(--accent-soft);
 }
 .menu__btn:disabled {
@@ -177,11 +192,13 @@ a:hover {
 /* ---------- cards ---------- */
 
 .card {
-  background: var(--card);
+  background: linear-gradient(168deg, rgba(43, 36, 82, 0.5), rgba(14, 12, 30, 0.66) 42%);
   border: 1px solid var(--card-edge);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
+  backdrop-filter: blur(16px) saturate(1.25);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
 }
 .card__head {
   display: flex;
@@ -221,6 +238,24 @@ a:hover {
   padding: 0.6rem 1.1rem;
   border-top: 1px dashed var(--card-edge);
   font-size: 0.82rem;
+}
+
+/* ErrorBoundary fallback keeps the app shell when a tab render throws. */
+.crash-card {
+  max-width: 560px;
+  margin: 0 auto;
+}
+.crash-card__detail {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--bg-soft);
+  border-radius: 8px;
+  padding: 0.6rem;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Install-as-app row: visually a lighter follow-on step in the Setup card. */
@@ -281,8 +316,7 @@ a:hover {
   transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
 }
 .btn:hover:not(:disabled) {
-  border-color: #334
-;
+  border-color: var(--accent-line);
 }
 .btn:active:not(:disabled) {
   transform: translateY(1px);
@@ -293,12 +327,15 @@ a:hover {
 }
 .btn--primary {
   background: var(--accent-soft);
-  border-color: rgba(96, 220, 190, 0.45);
-  color: var(--accent);
+  border-color: var(--accent-line);
+  color: var(--accent-strong);
+}
+.btn--primary:hover:not(:disabled) {
+  background: rgba(167, 139, 250, 0.26);
 }
 .btn--secondary {
-  background: rgba(96, 156, 220, 0.12);
-  border-color: rgba(96, 156, 220, 0.4);
+  background: rgba(244, 114, 182, 0.13);
+  border-color: rgba(244, 114, 182, 0.42);
 }
 .btn--ghost {
   background: transparent;
@@ -321,11 +358,11 @@ progress::-webkit-progress-bar {
   border-radius: 999px;
 }
 progress::-webkit-progress-value {
-  background: linear-gradient(90deg, var(--accent), #609cdc);
+  background: linear-gradient(90deg, var(--accent), var(--pink));
   border-radius: 999px;
 }
 progress::-moz-progress-bar {
-  background: linear-gradient(90deg, var(--accent), #609cdc);
+  background: linear-gradient(90deg, var(--accent), var(--pink));
 }
 
 /* ---------- dropzone / preview ---------- */
@@ -475,7 +512,7 @@ progress::-moz-progress-bar {
   width: 2px;
   margin-left: -1px;
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(96, 220, 190, 0.7);
+  box-shadow: 0 0 12px rgba(167, 139, 250, 0.75);
   pointer-events: none;
 }
 .compare__handle span {
@@ -495,7 +532,7 @@ progress::-moz-progress-bar {
   inset: 0;
   display: grid;
   place-items: center;
-  color: #08251f;
+  color: #231b4d;
   font-size: 13px;
   font-weight: 800;
 }
@@ -637,14 +674,16 @@ select {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(5, 7, 11, 0.8);
+  background: rgba(5, 4, 14, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   display: grid;
   place-items: center;
   padding: 1rem;
   z-index: 50;
 }
 .modal__panel {
-  background: var(--card);
+  background: rgba(24, 21, 46, 0.9);
   border: 1px solid var(--card-edge);
   border-radius: var(--radius);
   width: min(560px, 100%);
@@ -693,7 +732,7 @@ select {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.42rem 0;
-  border-bottom: 1px dashed rgba(35, 42, 58, 0.55);
+  border-bottom: 1px dashed var(--card-edge);
   font-size: 0.88rem;
 }
 .diag__row:last-child {
@@ -723,7 +762,9 @@ select {
   font-size: 0.9rem;
   color: var(--text);
   border: 1px solid var(--card-edge);
-  background: var(--card);
+  background: rgba(16, 13, 32, 0.78);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 12px;
   padding: 0.6rem 0.8rem;
   cursor: pointer;
