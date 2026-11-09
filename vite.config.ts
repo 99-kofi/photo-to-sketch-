@@ -127,6 +127,10 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
+    // The CSS minifier collapsed backdrop-filter into a -webkit- only form
+    // that Chromium's parser silently rejects (computed -> 'none', no glass).
+    // Ship the authored CSS verbatim: 12 KB uncompressed is a fine price.
+    cssMinify: false,
     sourcemap: false,
     rollupOptions: {
       output: {
