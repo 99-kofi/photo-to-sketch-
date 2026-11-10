@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1350" width="1080" height="1350">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#312e81" stop-opacity="0.7" />
+      <stop offset="60%" stop-color="#141227" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#0b0d12" />
+    </radialGradient>
+    <linearGradient id="zero" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eceaf6" />
+      <stop offset="1" stop-color="#a78bfa" />
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="1350" fill="#0b0d12" />
+  <rect width="1080" height="1350" fill="url(#glow)">
+    <animate attributeName="opacity" values="0.85;1;0.85" dur="9s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- counter flicker: random-ish bytes collapsing to 0 -->
+  <text x="540" y="640" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="150"
+        font-weight="800" font-variant-numeric="tabular-nums" letter-spacing="-4" fill="url(#zero)">
+    <animate attributeName="visibility" values="visible;visible" dur="0.1s" repeatCount="1" />
+    0
+  </text>
+
+  <g font-family="Inter, system-ui, sans-serif" text-anchor="middle">
+    <text x="540" y="420" fill="#9a97b8" font-size="38" letter-spacing="14" font-weight="600">
+      BYTES SENT TO THE CLOUD
+    </text>
+    <!-- collapsing digits behind the big zero -->
+    <text x="540" y="640" fill="#a78bfa" font-size="60" font-weight="800" opacity="0.55" font-variant-numeric="tabular-nums">
+      <animate attributeName="opacity" values="0.55;0;0;0.55" keyTimes="0;0.35;0.8;1" dur="4s" repeatCount="indefinite" />
+      124,161,028 →
+    </text>
+
+    <text x="540" y="800" fill="#eceaf6" font-size="88" font-weight="800" letter-spacing="-1" opacity="0">
+      Nothing left the device.
+      <animate attributeName="opacity" values="0;1" dur="1s" begin="1.4s" fill="freeze" />
+    </text>
+    <text x="540" y="880" fill="#f472b6" font-size="60" font-weight="700" opacity="0">
+      Not one pixel.
+      <animate attributeName="opacity" values="0;1" dur="0.9s" begin="2s" fill="freeze" />
+    </text>
+
+    <!-- shield check -->
+    <g transform="translate(540 1020)" stroke="#5fd39a" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0 -46 L40 -28 V14 C40 38 22 52 0 62 C-22 52 -40 38 -40 14 V-28 Z" opacity="0.9">
+        <animate attributeName="stroke-dasharray" values="300;300" dur="0.01s" fill="freeze" />
+      </path>
+      <path d="M-16 2 L-4 16 L20 -12" stroke-dasharray="70" stroke-dashoffset="70">
+        <animate attributeName="stroke-dashoffset" values="70;0" dur="0.7s" begin="2.6s" fill="freeze" />
+        <animate attributeName="opacity" values="0;1" dur="0.1s" begin="2.6s" fill="freeze" />
+      </path>
+    </g>
+  </g>
+
+  <text x="540" y="1300" text-anchor="middle" fill="#9a97b8" font-family="Inter, system-ui, sans-serif"
+        font-size="34" letter-spacing="10" font-weight="600">
+    SKETCH STUDIO · FROM WAIT TECHNOLOGIES
+  </text>
+</svg>

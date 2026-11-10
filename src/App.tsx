@@ -452,7 +452,10 @@ export default function App() {
       </main>
 
       <footer className="footer muted">
-        <p>From WAIT Technologies</p>
+        <p>
+          From WAIT Technologies ·{' '}
+          <a href={`${import.meta.env.BASE_URL}campaign.html`}>Campaign</a>
+        </p>
       </footer>
     </div>
   );

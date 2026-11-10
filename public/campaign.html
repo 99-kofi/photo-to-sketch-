@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0d12" />
+    <meta name="description" content="Sketch Studio — The cloud never saw it coming. A campaign for on-device sketching, from WAIT Technologies." />
+    <title>Sketch Studio — The Cloud Never Saw It Coming · WAIT Technologies</title>
+    <style>
+      :root {
+        --bg: #0b0d12;
+        --ink: #eceaf6;
+        --muted: #9a97b8;
+        --accent: #a78bfa;
+        --accent-strong: #d6c9ff;
+        --pink: #f472b6;
+        --paper: #f7f5f0;
+        --inkline: #1d2436;
+        --glass: rgba(26, 23, 48, 0.55);
+        --edge: rgba(255, 255, 255, 0.09);
+      }
+      * { box-sizing: border-box; margin: 0; }
+      html, body { height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.5;
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+      /* ---------- smoke backdrop (same engine as the app) ---------- */
+      #smoke { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: var(--bg); }
+      #smoke canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .vignette {
+        position: fixed; inset: 0; z-index: 1; pointer-events: none;
+        background: radial-gradient(120% 90% at 50% 40%, transparent 40%, rgba(5, 3, 20, 0.55) 100%);
+      }
+      .grain {
+        position: fixed; inset: -100px; z-index: 2; pointer-events: none; opacity: 0.05;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+        animation: grainShift 0.9s steps(3) infinite;
+      }
+      @keyframes grainShift {
+        0% { transform: translate(0, 0); }
+        33% { transform: translate(-40px, 25px); }
+        66% { transform: translate(30px, -35px); }
+        100% { transform: translate(0, 0); }
+      }
+
+      /* ---------- stage + scenes ---------- */
+      .stage { position: fixed; inset: 0; z-index: 3; }
+      .scene {
+        position: absolute; inset: 0;
+        display: grid; place-items: center;
+        padding: clamp(1rem, 4vw, 3rem);
+        opacity: 0; visibility: hidden;
+        transition: opacity 0.7s ease, visibility 0.7s;
+      }
+      .scene.active { opacity: 1; visibility: visible; }
+
+      .kicker {
+        display: inline-flex; align-items: center; gap: 0.6rem;
+        font-size: clamp(0.68rem, 1.6vw, 0.8rem);
+        letter-spacing: 0.34em; text-transform: uppercase; color: var(--muted);
+        margin-bottom: clamp(1rem, 3vh, 1.8rem);
+      }
+      .kicker::before { content: ''; width: 2.2rem; height: 1px; background: linear-gradient(90deg, transparent, var(--accent)); }
+      .kicker::after { content: ''; width: 2.2rem; height: 1px; background: linear-gradient(90deg, var(--accent), transparent); }
+
+      /* kinetic headline */
+      .kinetic { text-align: center; }
+      .kinetic .line {
+        display: block;
+        font-size: clamp(2.1rem, 8.5vw, 6.2rem);
+        font-weight: 800; letter-spacing: -0.025em; line-height: 1.04;
+        text-transform: uppercase;
+        text-shadow: 0 4px 40px rgba(7, 4, 25, 0.7);
+      }
+      .kinetic .line > span {
+        display: inline-block;
+        opacity: 0; filter: blur(14px); transform: translateY(0.45em) scale(1.06);
+      }
+      .scene.active .kinetic .line > span {
+        animation: inkIn 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+      }
+      .scene.active .line:nth-child(1) > span { animation-delay: 0.15s; }
+      .scene.active .line:nth-child(2) > span { animation-delay: 0.55s; }
+      .scene.active .line:nth-child(3) > span { animation-delay: 1.0s; }
+      @keyframes inkIn {
+        60% { filter: blur(2px); }
+        100% { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); }
+      }
+      .kinetic .come { 
+        background: linear-gradient(92deg, var(--accent) 15%, var(--pink) 85%);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+
+      /* scene frame (used by visual scenes) */
+      .frame { display: flex; flex-direction: column; align-items: center; gap: clamp(1rem, 3.5vh, 2rem); text-align: center; }
+      .frame .caption {
+        font-size: clamp(1.15rem, 3.4vw, 2rem); font-weight: 700; letter-spacing: -0.01em;
+        opacity: 0; transform: translateY(14px);
+      }
+      .frame .caption em { font-style: normal; color: var(--pink); }
+      .scene.active .frame .caption { animation: riseIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.9s forwards; }
+      .frame .sub {
+        font-size: clamp(0.8rem, 2vw, 0.95rem); color: var(--muted); max-width: 46ch;
+        opacity: 0; transform: translateY(10px);
+      }
+      .scene.active .frame .sub { animation: riseIn 0.8s ease 1.25s forwards; }
+      @keyframes riseIn { to { opacity: 1; transform: translateY(0); } }
+
+      /* scene 2 — photo to sketch */
+      .canvas-wrap {
+        width: min(560px, 86vw);
+        border-radius: 18px; overflow: hidden;
+        border: 1px solid var(--edge);
+        box-shadow: 0 30px 80px rgba(5, 3, 20, 0.6);
+        transform: rotate(-1.2deg);
+      }
+      .canvas-wrap svg { display: block; width: 100%; height: auto; }
+      .photo-layer { transition: opacity 1.6s ease 1.0s; }
+      .scene.active .photo-layer { opacity: 0.07; }
+      .sketch-layer path, .sketch-layer circle, .sketch-layer line {
+        stroke: var(--inkline); fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+      }
+      .scene:not(.active) .draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); }
+      .scene.active .draw {
+        animation: drawOn 1.4s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
+        animation-delay: calc(1.0s + var(--i) * 0.22s);
+      }
+      @keyframes drawOn { to { stroke-dashoffset: 0; } }
+
+      /* scene 3 — counter */
+      .counter {
+        font-size: clamp(3rem, 12vw, 7.5rem); font-weight: 800; letter-spacing: -0.03em;
+        font-variant-numeric: tabular-nums;
+        background: linear-gradient(180deg, var(--ink) 30%, rgba(167, 139, 250, 0.55) 100%);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        text-shadow: none;
+      }
+      .badge-zero {
+        display: inline-flex; align-items: center; gap: 0.55rem;
+        border: 1px solid var(--edge); border-radius: 999px;
+        padding: 0.5rem 1.1rem; font-size: clamp(0.85rem, 2.2vw, 1rem);
+        color: var(--accent-strong); background: var(--glass);
+        backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+        opacity: 0; transform: scale(0.9);
+      }
+      .scene.active .badge-zero { animation: popIn 0.6s cubic-bezier(0.3, 1.4, 0.4, 1) 2.2s forwards; }
+      @keyframes popIn { to { opacity: 1; transform: scale(1); } }
+      .badge-zero .dot { width: 8px; height: 8px; border-radius: 50%; background: #5fd39a; box-shadow: 0 0 12px rgba(95, 211, 154, 0.9); }
+
+      /* scene 4 — offline */
+      .wifi { width: min(300px, 60vw); overflow: visible; }
+      .wifi .arc { stroke: var(--accent); fill: none; stroke-width: 10; stroke-linecap: round; opacity: 1; }
+      .wifi .dot { fill: var(--pink); }
+      .scene.active .wifi .arc { animation: arcDie 1.1s ease forwards; }
+      .scene.active .wifi .arc:nth-of-type(1) { animation-delay: 0.7s; }
+      .scene.active .wifi .arc:nth-of-type(2) { animation-delay: 1.15s; }
+      .scene.active .wifi .arc:nth-of-type(3) { animation-delay: 1.6s; }
+      @keyframes arcDie {
+        0% { opacity: 1; transform: translateY(0); }
+        25% { transform: translateY(-7px); }
+        55% { opacity: 0.15; transform: translateY(4px); }
+        100% { opacity: 0; transform: translateY(0); }
+      }
+      .scene.active .wifi .dot { animation: ember 2.2s ease 1.9s infinite; }
+      @keyframes ember {
+        0%, 100% { filter: drop-shadow(0 0 6px rgba(244, 114, 182, 0.9)); }
+        50% { filter: drop-shadow(0 0 22px rgba(244, 114, 182, 1)); }
+      }
+      .offline-glow {
+        position: absolute; width: 46vmin; height: 46vmin; border-radius: 50%;
+        background: radial-gradient(circle, rgba(244, 114, 182, 0.14), transparent 65%);
+        z-index: -1; animation: breathe 3.4s ease-in-out infinite;
+      }
+      @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.18); opacity: 1; } }
+
+      /* scene 5 — CTA */
+      .cta-card {
+        display: flex; flex-direction: column; align-items: center; gap: 1.2rem;
+        background: linear-gradient(168deg, rgba(43, 36, 82, 0.55), rgba(14, 12, 30, 0.7) 45%);
+        border: 1px solid var(--edge); border-radius: 22px;
+        padding: clamp(1.6rem, 5vw, 3rem) clamp(1.4rem, 6vw, 4rem);
+        backdrop-filter: blur(18px) saturate(1.25); -webkit-backdrop-filter: blur(18px) saturate(1.25);
+        box-shadow: 0 30px 80px rgba(5, 3, 20, 0.6);
+        text-align: center; max-width: 92vw;
+      }
+      .cta-card h2 {
+        font-size: clamp(1.6rem, 5.5vw, 3.1rem); font-weight: 800; letter-spacing: -0.02em;
+      }
+      .cta-card h2 span { color: var(--pink); }
+      .cta-btn {
+        display: inline-flex; align-items: center; gap: 0.6rem;
+        background: linear-gradient(92deg, rgba(167, 139, 250, 0.24), rgba(244, 114, 182, 0.2));
+        border: 1px solid rgba(167, 139, 250, 0.5);
+        color: var(--accent-strong); text-decoration: none;
+        font-weight: 700; font-size: clamp(0.95rem, 2.6vw, 1.1rem);
+        padding: 0.85rem 1.7rem; border-radius: 14px;
+        transition: transform 0.15s ease, box-shadow 0.2s ease;
+      }
+      .cta-btn:hover { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(167, 139, 250, 0.25); }
+      .posters { display: flex; gap: 0.8rem; flex-wrap: wrap; justify-content: center; }
+      .posters a {
+        width: 84px; height: 84px; border-radius: 12px; overflow: hidden;
+        border: 1px solid var(--edge); display: block;
+        transition: transform 0.18s ease, border-color 0.18s ease;
+      }
+      .posters a:hover { transform: translateY(-4px) scale(1.04); border-color: var(--accent); }
+      .posters img { width: 100%; height: 100%; display: block; }
+      .sig {
+        font-size: 0.78rem; letter-spacing: 0.3em; text-transform: uppercase; color: var(--muted);
+        margin-top: 0.4rem;
+      }
+      .sig b { color: var(--accent-strong); font-weight: 700; }
+
+      /* ---------- chrome ---------- */
+      .brand {
+        position: fixed; top: calc(1rem + env(safe-area-inset-top)); left: 1.2rem; z-index: 5;
+        font-weight: 800; letter-spacing: 0.02em; font-size: 0.95rem;
+        display: flex; align-items: baseline; gap: 0.5rem;
+      }
+      .brand em { font-style: normal; color: var(--pink); }
+      .brand span { font-weight: 500; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.22em; text-transform: uppercase; }
+      .progress {
+        position: fixed; bottom: calc(1.1rem + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+        display: flex; gap: 0.45rem; z-index: 5;
+      }
+      .seg-btn {
+        width: clamp(34px, 7vw, 56px); height: 4px; border: 0; border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14); cursor: pointer; position: relative; overflow: hidden;
+        padding: 0;
+      }
+      .seg-btn .fill { position: absolute; inset: 0; width: 0%; background: linear-gradient(90deg, var(--accent), var(--pink)); border-radius: inherit; }
+      .seg-btn.done .fill { width: 100%; }
+      .seg-btn.running .fill { animation: fill linear forwards; animation-duration: var(--dur, 6.5s); }
+      @keyframes fill { from { width: 0%; } to { width: 100%; } }
+      .hint {
+        position: fixed; bottom: calc(1.4rem + env(safe-area-inset-bottom)); right: 1.2rem; z-index: 5;
+        font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
+        opacity: 0.7;
+      }
+      @media (max-width: 640px) { .hint { display: none; } }
+
+      @media (prefers-reduced-motion: reduce) {
+        .grain { animation: none; }
+        .kinetic .line > span, .frame .caption, .frame .sub, .badge-zero { animation-duration: 0.01s !important; animation-delay: 0s !important; }
+        .scene.active .draw { animation-duration: 0.01s !important; animation-delay: 0.3s !important; }
+        .seg-btn.running .fill { animation-duration: 9s !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="smoke"><canvas></canvas></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+
+    <div class="brand">Sketch<em>Studio</em><span>· WAIT</span></div>
+
+    <div class="stage" id="stage">
+      <!-- SCENE 1 — kinetic hero -->
+      <section class="scene active" data-dur="6800">
+        <div class="kinetic">
+          <span class="kicker">A campaign for on-device art</span>
+          <span class="line"><span>The cloud</span></span>
+          <span class="line"><span>never saw it</span></span>
+          <span class="line"><span class="come">coming.</span></span>
+        </div>
+      </section>
+
+      <!-- SCENE 2 — photo becomes ink -->
+      <section class="scene" data-dur="7400">
+        <div class="frame">
+          <div class="canvas-wrap">
+            <svg viewBox="0 0 560 400" role="img" aria-label="A photo of a mountain cabin dissolving into an ink sketch">
+              <defs>
+                <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#6d28d9" />
+                  <stop offset="0.62" stop-color="#a855f7" />
+                  <stop offset="1" stop-color="#f472b6" />
+                </linearGradient>
+                <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#312e81" />
+                  <stop offset="1" stop-color="#1e1b4b" />
+                </linearGradient>
+              </defs>
+              <rect width="560" height="400" fill="#f7f5f0" />
+              <g class="photo-layer">
+                <rect width="560" height="252" fill="url(#sky)" />
+                <circle cx="418" cy="96" r="46" fill="#fda4af" opacity="0.95" />
+                <path d="M0 252 L96 118 L172 216 L238 128 L330 252 Z" fill="#241b52" opacity="0.92" />
+                <path d="M240 252 L352 132 L452 232 L516 156 L560 252 Z" fill="#3b2a7a" opacity="0.9" />
+                <rect y="252" width="560" height="148" fill="url(#water)" />
+                <rect x="112" y="196" width="88" height="56" fill="#171233" rx="3" />
+                <path d="M106 196 h100 v-10 l-50 -22 -50 22 z" fill="#171233" />
+                <rect x="146" y="216" width="18" height="20" fill="#fbbf24" opacity="0.85" />
+              </g>
+              <g class="sketch-layer">
+                <path class="draw" style="--i: 0" d="M12 250 L100 122 L170 212 L236 126 L328 250" />
+                <path class="draw" style="--i: 1" d="M238 250 L352 130 L450 230 L514 154 L548 250" />
+                <circle class="draw" style="--i: 2" cx="418" cy="96" r="46" />
+                <path class="draw" style="--i: 3" d="M104 196 h96 M112 196 v56 M200 196 v56" />
+                <path class="draw" style="--i: 4" d="M104 196 l48 -22 48 22 M146 216 h18 v20 h-18 z" />
+                <path class="draw" style="--i: 5" d="M14 268 h532 M60 292 h180 M320 296 h176 M40 330 h240 M330 336 h150 M96 366 h300" />
+              </g>
+            </svg>
+          </div>
+          <p class="caption">Your photo, <em>re-inked</em> — right where it lives.</p>
+          <p class="sub">A U-Net vision model, converted to float16, running inside your browser. The pixels never cross the room.</p>
+        </div>
+      </section>
+
+      <!-- SCENE 3 — the counter -->
+      <section class="scene" data-dur="6600">
+        <div class="frame">
+          <span class="kicker">Privacy, measured</span>
+          <div class="counter" id="bytesCounter">124,161,028</div>
+          <p class="caption">bytes uploaded to any server.</p>
+          <span class="badge-zero"><span class="dot"></span> Sent total: 0 — ever</span>
+        </div>
+      </section>
+
+      <!-- SCENE 4 — offline -->
+      <section class="scene" data-dur="6200">
+        <div class="frame">
+          <div class="offline-glow"></div>
+          <svg class="wifi" viewBox="0 0 200 150" role="img" aria-label="A Wi-Fi signal fading into an ember">
+            <path class="arc" d="M28 74 a82 82 0 0 1 144 0" />
+            <path class="arc" d="M52 100 a58 58 0 0 1 96 0" />
+            <path class="arc" d="M76 126 a34 34 0 0 1 48 0" />
+            <circle class="dot" cx="100" cy="140" r="9" />
+          </svg>
+          <p class="caption">No signal? <em>No problem.</em></p>
+          <p class="sub">The engine is cached on your device and the app is a PWA. Airplane mode is fully supported — recommended, even.</p>
+        </div>
+      </section>
+
+      <!-- SCENE 5 — CTA -->
+      <section class="scene" data-dur="8000">
+        <div class="frame">
+          <div class="cta-card">
+            <span class="kicker">Sketch Studio</span>
+            <h2>Every line, <span>yours alone.</span></h2>
+            <a class="cta-btn" href="./">Open the app →</a>
+            <div class="posters" aria-label="Campaign posters">
+              <a href="./campaign/poster-1.svg" target="_blank" rel="noreferrer"><img src="./campaign/poster-1.svg" alt="Poster: Every line, yours alone." /></a>
+              <a href="./campaign/poster-2.svg" target="_blank" rel="noreferrer"><img src="./campaign/poster-2.svg" alt="Poster: 0 bytes sent." /></a>
+              <a href="./campaign/poster-3.svg" target="_blank" rel="noreferrer"><img src="./campaign/poster-3.svg" alt="Poster: No signal? No problem." /></a>
+            </div>
+            <p class="sig">From <b>WAIT Technologies</b></p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="progress" id="progress" role="tablist" aria-label="Scenes"></div>
+    <div class="hint">Tap / click to skip</div>
+
+    <script>
+      /* ---------- smoke shader (vanilla port of the app's SmokeyBackground) ---------- */
+      (() => {
+        const VERT = 'attribute vec4 a_position; void main() { gl_Position = a_position; }';
+        const FRAG = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec2 iResolution; uniform float iTime; uniform vec2 iMouse;
+uniform vec3 u_colors[8]; uniform int u_colorCount; uniform float u_speed;
+uniform float u_scale; uniform float u_hover; uniform float u_pointer;
+uniform float u_reach; uniform float u_glowEdge;
+const int WARP_OCTAVES = 4; const int DETAIL_OCTAVES = 8;
+const float D_LO = 0.33; const float D_HI = 0.77;
+vec3 gradientColor(float t){
+  if (u_colorCount <= 1) return u_colors[0];
+  float segments = float(u_colorCount - 1); float scaled = clamp(t,0.0,1.0)*segments;
+  float idx = floor(scaled); float f = fract(scaled);
+  vec3 c0 = u_colors[0]; vec3 c1 = u_colors[0];
+  for (int i = 0; i < 8; i++) { if (float(i)==idx) c0 = u_colors[i]; if (float(i)==idx+1.0) c1 = u_colors[i]; }
+  return mix(c0, c1, f);
+}
+float hash(vec2 p){ p = fract(p*vec2(127.1,311.7)); p += dot(p, p+34.45); return fract(p.x*p.y); }
+float noise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p);
+  float a = hash(i); float b = hash(i+vec2(1.,0.)); float c = hash(i+vec2(0.,1.)); float d = hash(i+vec2(1.,1.));
+  vec2 u = f*f*(3.0-2.0*f); return mix(mix(a,b,u.x), mix(c,d,u.x), u.y); }
+const mat2 ROT = mat2(0.6603,-0.7509,0.7509,0.6603);
+float fbm(vec2 p, int oct){ float s=0.0; float a=0.5; vec2 pp=p;
+  for(int i=0;i<8;i++){ if(i>=oct) break; s += a*noise(pp); pp = ROT*pp*2.0 + vec2(3.1,1.7); a *= 0.5; } return s; }
+void mainImage(out vec4 c, in vec2 fc){
+  float s = min(iResolution.x, iResolution.y);
+  vec2 uv = (2.0*fc - iResolution.xy)/s;
+  vec2 mUV = (2.0*iMouse - iResolution.xy)/s;
+  vec2 toM = uv - mUV; float d = length(toM);
+  float reach = max(u_reach, 0.01);
+  float fall = 1.0 - smoothstep(0.0, reach, d);
+  float core = smoothstep(0.0, 0.35*reach, d);
+  vec2 rad = toM/max(d, 0.0001); vec2 tan2 = vec2(-rad.y, rad.x);
+  vec2 push = mix(rad, tan2, 0.7) * fall * core * u_hover * u_pointer * 0.6;
+  vec2 p = (uv + push) * u_scale; float t = iTime * u_speed;
+  vec2 q = vec2(fbm(p + t*0.15, WARP_OCTAVES), fbm(p + vec2(5.2,1.3) - t*0.1, WARP_OCTAVES));
+  vec2 r = vec2(fbm(p + 4.0*q + vec2(1.7,9.2) + t*0.12, WARP_OCTAVES), fbm(p + 4.0*q + vec2(8.3,2.8) - t*0.09, WARP_OCTAVES));
+  float dens = fbm(p + 4.0*r, DETAIL_OCTAVES);
+  float n = clamp((dens - D_LO)/(D_HI - D_LO), 0.0, 1.0);
+  float glow = smoothstep(u_glowEdge, 1.0, n);
+  c = vec4(gradientColor(n)*glow, glow);
+}
+void main() { mainImage(gl_FragColor, gl_FragCoord.xy); }`;
+
+        const root = document.getElementById('smoke');
+        const canvas = root.querySelector('canvas');
+        const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false });
+        if (!gl) return;
+        const sh = (type, src) => {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src); gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); return null; }
+          return s;
+        };
+        const vs = sh(gl.VERTEX_SHADER, VERT), fs = sh(gl.FRAGMENT_SHADER, FRAG);
+        if (!vs || !fs) return;
+        const prog = gl.createProgram();
+        gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+        gl.useProgram(prog);
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+        const loc = gl.getAttribLocation(prog, 'a_position');
+        gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        const U = n => gl.getUniformLocation(prog, n);
+        const uRes = U('iResolution'), uTime = U('iTime'), uMouse = U('iMouse'),
+          uColors = U('u_colors[0]') || U('u_colors'), uCount = U('u_colorCount'),
+          uSpeed = U('u_speed'), uScale = U('u_scale'), uHover = U('u_hover'),
+          uPointer = U('u_pointer'), uReach = U('u_reach'), uGlow = U('u_glowEdge');
+
+        const parse = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+        const palette = ['#231b4d', '#38246e', '#6d28d9', '#8b5cf6', '#f472b6'];
+        const flat = new Float32Array(24);
+        for (let i = 0; i < 8; i++) { const c = parse(palette[Math.min(i, palette.length - 1)]); flat.set(c, i * 3); }
+
+        let w = 1, h = 1;
+        const ro = new ResizeObserver(es => { const b = es[0].contentRect; w = Math.max(1, b.width); h = Math.max(1, b.height); });
+        ro.observe(root);
+
+        const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const pointer = { x: 0.5, y: 0.5, active: false, seeded: false };
+        const move = e => { pointer.x = e.clientX / innerWidth; pointer.y = e.clientY / innerHeight; pointer.active = true; pointer.seeded = true; };
+        const out = () => { pointer.active = false; };
+        addEventListener('pointermove', move, { passive: true });
+        addEventListener('pointerout', out, { passive: true });
+
+        let raf = 0, last = performance.now(), elapsed = 0, sx = 0.5, sy = 0.5, presence = 0;
+        const render = now => {
+          const dpr = Math.min(devicePixelRatio || 1, 1.5);
+          const bw = Math.max(1, Math.round(w * dpr)), bh = Math.max(1, Math.round(h * dpr));
+          if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; gl.viewport(0, 0, bw, bh); }
+          const dt = Math.min(now - last, 50); last = now; elapsed += dt;
+          if (pointer.seeded) { const e = 1 - Math.exp(-dt / 70); sx += (pointer.x - sx) * e; sy += (pointer.y - sy) * e; }
+          else { sx = pointer.x; sy = pointer.y; }
+          presence += ((pointer.active && !reduced ? 1 : 0) - presence) * (1 - Math.exp(-dt / 180));
+          gl.uniform2f(uRes, bw, bh);
+          gl.uniform1f(uTime, elapsed / 1000);
+          gl.uniform1f(uSpeed, reduced ? 0 : 0.08);
+          gl.uniform1f(uScale, 1.5);
+          gl.uniform1f(uHover, reduced ? 0 : 0.38);
+          gl.uniform1f(uPointer, presence);
+          gl.uniform1f(uReach, 1.0);
+          gl.uniform1f(uGlow, 0.9 - 0.72 * 1.2);
+          if (uColors) gl.uniform3fv(uColors, flat);
+          gl.uniform1i(uCount, 8);
+          gl.uniform2f(uMouse, sx * bw, (1 - sy) * bh);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+          raf = requestAnimationFrame(render);
+        };
+        const start = () => { cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(render); };
+        document.addEventListener('visibilitychange', () => document.hidden ? cancelAnimationFrame(raf) : start());
+        start();
+      })();
+
+      /* ---------- scene manager ---------- */
+      (() => {
+        const scenes = Array.from(document.querySelectorAll('.scene'));
+        const progress = document.getElementById('progress');
+        const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        let idx = 0, segs = [];
+
+        const seg = document.createElement('button');
+        seg.className = 'seg-btn'; seg.type = 'button'; seg.setAttribute('role', 'tab');
+        const fill = document.createElement('span'); fill.className = 'fill';
+        seg.appendChild(fill);
+
+        scenes.forEach((sc, i) => {
+          const s = seg.cloneNode(true);
+          s.setAttribute('aria-label', 'Scene ' + (i + 1));
+          s.addEventListener('click', () => go(i, true));
+          progress.appendChild(s);
+          segs.push(s);
+        });
+
+        const counter = document.getElementById('bytesCounter');
+        const BYTES = 124161028;
+        let countRaf = 0;
+        function runCounter() {
+          cancelAnimationFrame(countRaf);
+          const t0 = performance.now(), dur = 2000;
+          const tick = now => {
+            const k = Math.min(1, (now - t0) / dur);
+            const eased = 1 - Math.pow(1 - k, 3);
+            counter.textContent = Math.max(0, Math.round(BYTES * (1 - eased))).toLocaleString('en-US');
+            if (k < 1) countRaf = requestAnimationFrame(tick);
+          };
+          if (reduced) { counter.textContent = '0'; return; }
+          countRaf = requestAnimationFrame(tick);
+        }
+
+        let timer = 0;
+        function go(i, manual) {
+          clearTimeout(timer);
+          cancelAnimationFrame(countRaf);
+          idx = ((i % scenes.length) + scenes.length) % scenes.length;
+          scenes.forEach((sc, n) => sc.classList.toggle('active', n === idx));
+          segs.forEach((s, n) => {
+            s.classList.remove('running', 'done');
+            s.querySelector('.fill').style.animationDuration = (scenes[n].dataset.dur || 6500) / 1000 + 's';
+            if (n < idx) s.classList.add('done');
+            if (n === idx) s.classList.add('running');
+          });
+          if (idx === 2) runCounter();
+          const dur = parseInt(scenes[idx].dataset.dur || '6500', 10) * (reduced ? 1.4 : 1);
+          timer = setTimeout(() => go(idx + 1), dur);
+        }
+
+        document.getElementById('stage').addEventListener('click', e => {
+          if (e.target.closest('a')) return;
+          go(idx + 1, true);
+        });
+        addEventListener('keydown', e => {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') go(idx + 1, true);
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') go(idx - 1, true);
+        });
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) { clearTimeout(timer); cancelAnimationFrame(countRaf); }
+          else go(idx);
+        });
+        go(0);
+      })();
+    </script>
+  </body>
+</html>
