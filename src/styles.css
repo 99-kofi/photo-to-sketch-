@@ -679,7 +679,11 @@ select {
   -webkit-backdrop-filter: blur(10px);
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding: calc(0.75rem + env(safe-area-inset-top)) 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  /* Short/landscape phones: let the dialog scroll rather than clipping the
+     shutter button off-screen. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 50;
 }
 .modal__panel {
@@ -687,6 +691,11 @@ select {
   border: 1px solid var(--card-edge);
   border-radius: var(--radius);
   width: min(560px, 100%);
+  max-height: calc(100vh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: var(--shadow);
 }
 .modal__head {
@@ -695,6 +704,7 @@ select {
   justify-content: space-between;
   padding: 0.8rem 1rem;
   border-bottom: 1px solid var(--card-edge);
+  flex: 0 0 auto;
 }
 .modal__head h3 {
   margin: 0;
@@ -702,7 +712,11 @@ select {
 }
 .camera {
   aspect-ratio: 3 / 4;
-  max-height: 60vh;
+  width: 100%;
+  max-height: 55vh;
+  max-height: 55dvh;
+  min-height: 0;
+  flex: 0 1 auto;
   background: #000;
   overflow: hidden;
   display: grid;
@@ -720,6 +734,15 @@ select {
   display: flex;
   justify-content: center;
   padding: 0.9rem;
+  flex: 0 0 auto;
+}
+/* Short viewports (landscape phones, split screen): trade camera height for
+   a shutter that is always on-screen. */
+@media (max-height: 620px) {
+  .camera {
+    aspect-ratio: 4 / 3;
+    max-height: 46dvh;
+  }
 }
 
 /* ---------- diagnostics ---------- */
