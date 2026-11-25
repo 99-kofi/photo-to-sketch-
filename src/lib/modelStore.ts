@@ -26,8 +26,16 @@ export interface DownloadProgress {
   total: number;
 }
 
+/**
+ * One connection per page life. Every operation used to open (and leak) a new
+ * IDBDatabase — `loadSavedParts` alone opened one per download checkpoint.
+ * A cached connection also keeps `deleteModel`/resume paths fast.
+ */
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -35,9 +43,25 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_PARTS)) db.createObjectStore(STORE_PARTS, { autoIncrement: true });
       if (!db.objectStoreNames.contains(STORE_BLOB)) db.createObjectStore(STORE_BLOB);
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
+    req.onsuccess = () => {
+      const db = req.result;
+      // Another tab upgrading the schema would otherwise block forever on a
+      // connection we keep open; close ours and let the next call reopen.
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      db.onclose = () => {
+        dbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      dbPromise = null;
+      reject(req.error ?? new Error('IndexedDB open failed'));
+    };
   });
+  return dbPromise;
 }
 
 async function withStore<T>(
@@ -47,7 +71,15 @@ async function withStore<T>(
 ): Promise<T> {
   const db = await openDb();
   return new Promise<T>((resolve, reject) => {
-    const tx = db.transaction(name, mode);
+    let tx: IDBTransaction;
+    try {
+      tx = db.transaction(name, mode);
+    } catch (err) {
+      // Connection died (closed by a version change / browser eviction).
+      dbPromise = null;
+      reject(err instanceof Error ? err : new Error('IndexedDB transaction failed'));
+      return;
+    }
     const store = tx.objectStore(name);
     let result: T | undefined;
     const req = fn(store);
@@ -172,7 +204,13 @@ function mergeBuffers(buffers: ArrayBuffer[], total: number): ArrayBuffer {
  * Throws on failure; callers can simply retry, which resumes where it left off.
  */
 export async function downloadModel(onProgress: (p: DownloadProgress) => void): Promise<DownloadOutcome> {
-  if (await getModelMeta()) return 'exists';
+  // Metadata alone is not proof of a usable model: if an old entry survived
+  // while its blob was evicted, `exists` would strand the app in a permanent
+  // "ready but gen fails" state. Verify the data too.
+  if (await getModelMeta()) {
+    if (await getModelBuffer()) return 'exists';
+    await deleteModel(); // stale metadata without data — rebuild from scratch
+  }
   await pruneLegacyModel();
 
   const url = modelUrl();

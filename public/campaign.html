@@ -525,6 +525,9 @@ void main() { mainImage(gl_FragColor, gl_FragCoord.xy); }`;
           scenes.forEach((sc, n) => sc.classList.toggle('active', n === idx));
           segs.forEach((s, n) => {
             s.classList.remove('running', 'done');
+            // Force a style flush: a remove+add within one task is coalesced,
+            // so the fill animation would not restart on revisited scenes.
+            void s.offsetWidth;
             s.querySelector('.fill').style.animationDuration = (scenes[n].dataset.dur || 6500) / 1000 + 's';
             if (n < idx) s.classList.add('done');
             if (n === idx) s.classList.add('running');

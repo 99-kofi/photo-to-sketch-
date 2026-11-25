@@ -108,10 +108,17 @@ function report(
  */
 function isGpuDeath(err: unknown): boolean {
   const m = err instanceof Error ? `${err.message} ${err.stack ?? ''}` : String(err);
-  return /mapAsync|device (lost|destroyed)|GPUBuffer|-webgpu-\|ERR/i.test(m);
+  // `-webgpu-|ERR` in the original pattern was an escaped literal pipe, not an
+  // alternation — it never matched. Also catch the allocation failures that
+  // precede a real device loss on memory-constrained GPUs.
+  return /mapAsync|device (?:was )?lost|device destroyed|GPUBuffer|-webgpu-|out of memory|failed to allocate/i.test(m);
 }
 
+/** Monotonic init counter: a superseded init must not publish its session. */
+let initGeneration = 0;
+
 async function init(req: Extract<WorkerRequest, { type: 'init' }>): Promise<void> {
+  const gen = ++initGeneration;
   const t0 = performance.now();
   try {
     if (ort == null) {
@@ -127,6 +134,7 @@ async function init(req: Extract<WorkerRequest, { type: 'init' }>): Promise<void
     runtime.env.wasm.wasmPaths = RUNTIME_PATH;
     runtime.env.wasm.numThreads = threads();
     runtime.env.logLevel = 'warning';
+    if (gen !== initGeneration) return; // a newer init arrived while importing
 
     // Backend selection: explicit force override wins, then prefer flag.
     const requested: 'webgpu' | 'wasm' = req.force ?? (req.preferWebGPU ? 'webgpu' : 'wasm');
@@ -138,19 +146,41 @@ async function init(req: Extract<WorkerRequest, { type: 'init' }>): Promise<void
         graphOptimizationLevel: 'all',
       });
 
+    let created: OrtNs.InferenceSession | null = null;
+    let backend = 'wasm';
     if (wantWebGPU) {
       try {
-        session = await trySession(['webgpu']);
-        activeBackend = 'webgpu';
+        created = await trySession(['webgpu']);
+        backend = 'webgpu';
       } catch (err) {
         report('WebGPU session failed — falling back to WASM', false, err);
-        session = null;
+        created = null;
       }
     }
-    if (session == null) {
-      session = await trySession(['wasm']);
-      activeBackend = 'wasm';
+    if (created == null) {
+      created = await trySession(['wasm']);
+      backend = 'wasm';
     }
+
+    if (gen !== initGeneration) {
+      // Superseded meanwhile: release the session we just built and stay quiet.
+      try {
+        await created.release();
+      } catch {
+        /* already gone */
+      }
+      return;
+    }
+    // Never keep two sessions resident — each one pins ~60 MB (more on GPU).
+    if (session != null) {
+      try {
+        await session.release();
+      } catch {
+        /* best-effort */
+      }
+    }
+    session = created;
+    activeBackend = backend;
     w.postMessage({
       type: 'ready',
       backend: activeBackend,
@@ -158,7 +188,7 @@ async function init(req: Extract<WorkerRequest, { type: 'init' }>): Promise<void
       sessionMs: Math.round(performance.now() - t0),
     });
   } catch (err) {
-    report('Could not create the inference session', true, err);
+    if (gen === initGeneration) report('Could not create the inference session', true, err);
   }
 }
 
@@ -171,24 +201,46 @@ async function run(req: Extract<WorkerRequest, { type: 'run' }>): Promise<void> 
     const rgba = new Uint8ClampedArray(req.rgba);
     const input = new ort.Tensor('float32', toChwFloat32(rgba), [...MODEL_INPUT_DIMS]);
     const t0 = performance.now();
-    const outputs = await session.run({ [MODEL_INPUT]: input });
-    const elapsed = Math.round(performance.now() - t0);
-    const out = outputs[MODEL_OUTPUT];
-    const data = out.data as Float32Array;
-    const side = out.dims[2] ?? MODEL_TILE;
-    // Trim to a single channel if the model ever returns batch 1 dims [1,1,N,N].
-    const sketch = data.length === side * side ? data : data.slice(0, side * side);
-    w.postMessage(
-      {
-        type: 'result',
-        id: req.id,
-        sketch,
-        side,
-        backend: activeBackend,
-        runMs: elapsed,
-      },
-      [sketch.buffer],
-    );
+    let outputs: OrtNs.InferenceSession.ReturnType | null = null;
+    try {
+      outputs = await session.run({ [MODEL_INPUT]: input });
+      const elapsed = Math.round(performance.now() - t0);
+      const out = outputs[MODEL_OUTPUT];
+      const data = out.data as Float32Array;
+      const side = out.dims[2] ?? MODEL_TILE;
+      // Always copy: the buffer is transferred to the main thread, and the
+      // ORT tensor (possibly GPU-backed) must be releasable afterwards.
+      const sketch = data.slice(0, side * side);
+      w.postMessage(
+        {
+          type: 'result',
+          id: req.id,
+          sketch,
+          side,
+          backend: activeBackend,
+          runMs: elapsed,
+        },
+        [sketch.buffer],
+      );
+    } finally {
+      // Tensors returned by run() are owned by the caller. Without disposing
+      // them every run leaks a GPU/WASM buffer — eventually the WebGPU device
+      // is lost to memory pressure. This is what feeds the low-memory path.
+      if (outputs != null) {
+        for (const tensor of Object.values(outputs)) {
+          try {
+            tensor.dispose();
+          } catch {
+            /* already released */
+          }
+        }
+      }
+      try {
+        input.dispose();
+      } catch {
+        /* already released */
+      }
+    }
   } catch (err) {
     // GPU failures are recoverable: mark them so the client restarts us on
     // the CPU backend. Everything else is a normal run error.
@@ -211,7 +263,7 @@ w.addEventListener('message', (ev) => {
 // otherwise the only symptom is a hung or reload-crashed page.
 self.addEventListener('unhandledrejection', (ev) => {
   const reason = (ev as PromiseRejectionEvent & { reason?: unknown }).reason;
-  if (isGpuDeath(reason)) {
+  if (activeBackend === 'webgpu' && isGpuDeath(reason)) {
     report('WebGPU device was lost', false, reason, undefined, true);
     session = null;
   }

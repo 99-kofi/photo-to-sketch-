@@ -31,26 +31,44 @@ export function Workspace({
   const [dragOver, setDragOver] = useState(false);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
 
-  // Generate sample thumbnails once.
+  // Generate sample thumbnails once; release every bitmap and object URL.
   useEffect(() => {
     let alive = true;
+    const createdUrls: string[] = [];
     (async () => {
       const urls: Record<string, string> = {};
       for (const sample of SAMPLES) {
         const bitmap = await renderSampleToBitmap(sample, 96);
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
-        canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
-        const blob = await new Promise<Blob>((res, rej) =>
-          canvas.toBlob((b) => (b ? res(b) : rej(new Error('toBlob failed'))), 'image/png'),
-        );
-        urls[sample.id] = URL.createObjectURL(blob);
+        let url: string | null = null;
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) continue;
+          ctx.drawImage(bitmap, 0, 0);
+          const blob = await new Promise<Blob>((res, rej) =>
+            canvas.toBlob((b) => (b ? res(b) : rej(new Error('toBlob failed'))), 'image/png'),
+          );
+          url = URL.createObjectURL(blob);
+        } finally {
+          bitmap.close();
+        }
+        if (!alive) {
+          // Unmounted (or StrictMode remount) mid-build — never leak.
+          if (url) URL.revokeObjectURL(url);
+          return;
+        }
+        if (url) {
+          createdUrls.push(url);
+          urls[sample.id] = url;
+        }
       }
-      if (alive) setThumbs(urls);
+      setThumbs(urls);
     })().catch(() => undefined);
     return () => {
       alive = false;
+      createdUrls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, []);
 

@@ -23,8 +23,15 @@ export function initInstallCapture(): () => void {
     deferred = e as InstallPromptEvent;
     listeners.forEach((l) => l(true));
   };
+  // Installed from the browser menu (or our own prompt): the captured event
+  // is permanently spent, so hide the install row everywhere.
+  const installed = () => markInstallFlowDone();
   window.addEventListener('beforeinstallprompt', handler);
-  return () => window.removeEventListener('beforeinstallprompt', handler);
+  window.addEventListener('appinstalled', installed);
+  return () => {
+    window.removeEventListener('beforeinstallprompt', handler);
+    window.removeEventListener('appinstalled', installed);
+  };
 }
 
 /** Subscribe to availability changes; the callback runs immediately too. */
@@ -45,10 +52,17 @@ export function markInstallFlowDone(): void {
 export async function promptInstall(): Promise<'accepted' | 'dismissed' | 'unavailable'> {
   if (deferred == null) return 'unavailable';
   const evt = deferred;
-  await evt.prompt();
-  const choice = await evt.userChoice;
-  if (choice.outcome === 'accepted') markInstallFlowDone();
-  return choice.outcome;
+  // A beforeinstallprompt event can only be prompted once. Consume it up
+  // front: re-tapping after a dismissal used to throw InvalidStateError as an
+  // unhandled rejection and leave a dead "Install" button on screen.
+  markInstallFlowDone();
+  try {
+    await evt.prompt();
+    const choice = await evt.userChoice;
+    return choice.outcome;
+  } catch {
+    return 'unavailable';
+  }
 }
 
 /** True when the app is already running as an installed home-screen app. */

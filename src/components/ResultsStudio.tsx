@@ -74,7 +74,9 @@ export function ResultsStudio({
   // is its inverse.
   const detected = useMemo(() => detectOrientation(result.sketch, result.side), [result]);
   const [flipOverride, setFlipOverride] = useState<boolean | null>(null);
-  useEffect(() => setFlipOverride(null), [detected]);
+  // Reset the manual override for each new result — keyed on the result, not
+  // the detected boolean, which can stay identical between two generations.
+  useEffect(() => setFlipOverride(null), [result]);
   const flip = flipOverride ?? !detected;
 
   const back = useMemo(

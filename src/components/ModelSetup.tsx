@@ -96,6 +96,7 @@ export function ModelSetup({ state, onDownload, onDelete, busy, installable, onI
       body = (
         <>
           <p className="error-text">Something interrupted the download. Tap retry to continue where it left off.</p>
+          {state.message && <p className="muted">Details: {state.message}</p>}
           <button className="btn btn--primary" onClick={onDownload} disabled={busy}>
             Retry
           </button>

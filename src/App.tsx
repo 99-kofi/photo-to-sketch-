@@ -42,9 +42,13 @@ export default function App() {
 
   const [installable, setInstallable] = useState(false);
   const install = useCallback(async () => {
-    const outcome = await promptInstall();
-    if (outcome === 'unavailable') {
-      push('Your browser does not expose an install prompt — use the browser menu → “Install app”.', 'info');
+    try {
+      const outcome = await promptInstall();
+      if (outcome === 'unavailable') {
+        push('Your browser does not expose an install prompt — use the browser menu → “Install app”.', 'info');
+      }
+    } catch {
+      push('Install is unavailable in this browser — use the browser menu → “Install app”.', 'info');
     }
   }, [push]);
   useEffect(() => {
@@ -104,6 +108,16 @@ export default function App() {
   const [crossOriginIsolated, setCrossOriginIsolated] = useState(false);
   const [engineReady, setEngineReady] = useState<EngineReady | null>(null);
   const engineRef = useRef<EngineClient | null>(null);
+
+  // Never leave a worker (and its ~60 MB session) behind on unmount; React
+  // StrictMode also performs a mount → unmount → mount cycle in development.
+  useEffect(
+    () => () => {
+      engineRef.current?.dispose();
+      engineRef.current = null;
+    },
+    [],
+  );
 
   /* ---------------- environment probes ---------------- */
 
@@ -176,8 +190,13 @@ export default function App() {
       await downloadModel((p) => {
         setModelState({ stage: 'downloading', received: p.received, total: p.total, error: null });
       });
+      // Read back before declaring victory: metadata alone can survive while
+      // the blob is gone (eviction), which would leave a "ready" app that
+      // cannot generate anything.
       const meta = await getModelMeta();
-      if (meta) setModelState({ stage: 'ready', meta });
+      const buffer = meta ? await getModelBuffer() : null;
+      if (!meta || !buffer) throw new Error('The downloaded model could not be read back from storage.');
+      setModelState({ stage: 'ready', meta });
       push('Model downloaded — ready for offline use ✓', 'success');
       void refreshStorage();
     } catch (err) {
@@ -233,22 +252,43 @@ export default function App() {
     [webgpuAvailable],
   );
 
-  const revokePreview = useCallback((state: SourceImageState | null) => {
-    if (state && state.previewUrl.startsWith('blob:')) URL.revokeObjectURL(state.previewUrl);
+  /** Release everything tied to a picked photo: preview URL + decoded bitmap. */
+  const disposeImage = useCallback((state: SourceImageState | null) => {
+    if (!state) return;
+    if (state.previewUrl.startsWith('blob:')) URL.revokeObjectURL(state.previewUrl);
+    try {
+      state.prepared.bitmap.close();
+    } catch {
+      /* already detached */
+    }
   }, []);
 
   const clearImage = useCallback(() => {
     setImage((prev) => {
-      revokePreview(prev);
+      disposeImage(prev);
       return null;
     });
     setResult(null);
-  }, [revokePreview]);
+  }, [disposeImage]);
+
+  // Monotonic pick counter: decoding is async, so a slow first pick must not
+  // overwrite a newer one that finished earlier.
+  const pickSeq = useRef(0);
 
   const handlePick = useCallback(
     async (source: Blob | ImageBitmap, name: string) => {
+      const seq = ++pickSeq.current;
       try {
         const prepared = await prepareImage(source, name);
+        if (seq !== pickSeq.current) {
+          // Superseded by a newer pick — drop this decode.
+          try {
+            prepared.bitmap.close();
+          } catch {
+            /* already detached */
+          }
+          return;
+        }
         let previewUrl: string;
         if (source instanceof Blob) {
           previewUrl = URL.createObjectURL(source);
@@ -256,11 +296,13 @@ export default function App() {
           const canvas = document.createElement('canvas');
           canvas.width = source.width;
           canvas.height = source.height;
-          canvas.getContext('2d')!.drawImage(source, 0, 0);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Canvas 2D is unavailable in this browser.');
+          ctx.drawImage(source, 0, 0);
           previewUrl = canvas.toDataURL('image/png');
         }
         setImage((prev) => {
-          revokePreview(prev);
+          disposeImage(prev);
           return { prepared, previewUrl, name };
         });
         setResult(null);
@@ -268,7 +310,7 @@ export default function App() {
         push(`Could not load that image: ${(err as Error).message}`, 'error');
       }
     },
-    [push, revokePreview],
+    [push, disposeImage],
   );
 
   const generate = useCallback(async () => {
@@ -281,8 +323,13 @@ export default function App() {
     // (renderer OOM under the GPU engine) is detected and pinned to WASM on
     // next launch. Cleared on success and on failure below.
     localStorage.setItem(LAST_GEN_KEY, String(Date.now()));
+    // Capture the backend before running: on a GPU death the client resets
+    // its `ready` state *before* this catch observes the rejection, so
+    // consulting `ready` here would always miss the recovery path.
+    let backendAtStart: string | null = null;
     try {
       const engine = await ensureEngine(true);
+      backendAtStart = engine.ready?.backend ?? null;
       const res = await engine.run(image.prepared.cropRgba);
       const flipAuto = detectOrientation(res.sketch, res.side);
       setRenderOptions((o) => ({ ...o, flip: flipAuto }));
@@ -291,11 +338,14 @@ export default function App() {
       setTab('results'); // jump straight to the fresh sketch
     } catch (err) {
       const message = (err as Error).message;
+      const gpuDied = (err as { gpuDied?: boolean }).gpuDied === true;
+      const onGpu = gpuDied || backendAtStart === 'webgpu' || engineRef.current?.ready?.backend === 'webgpu';
       // A dead/failing GPU engine downgrades permanently to the CPU engine —
       // once per session it silently retries there.
-      if (engineRef.current?.ready?.backend === 'webgpu') {
-        engineRef.current.dispose();
+      if (onGpu) {
+        engineRef.current?.dispose();
         engineRef.current = null;
+        setEngineReady(null);
         localStorage.setItem(BACKEND_KEY, 'wasm');
         push('The GPU engine hit a memory limit — retrying on the CPU engine.', 'info');
         try {
@@ -319,6 +369,22 @@ export default function App() {
       setRunning(false);
     }
   }, [image, running, ensureEngine, push]);
+
+  /* ---------------- stable handlers for child components ---------------- */
+
+  // Children keep these in effect dependencies (the camera restarts its
+  // stream when `onError` changes), so they must not be re-created per render.
+  const handlePicked = useCallback(
+    (source: Blob | ImageBitmap, name: string) => {
+      void handlePick(source, name);
+    },
+    [handlePick],
+  );
+  const handleError = useCallback((message: string) => push(message, 'error'), [push]);
+  const handleGenerateClick = useCallback(() => {
+    void generate();
+  }, [generate]);
+  const handleReset = useCallback(() => setResult(null), []);
 
   /* ---------------- derived diagnostics ---------------- */
 
@@ -417,12 +483,10 @@ export default function App() {
         {tab === 'workspace' && (
           <Workspace
             image={image}
-            onPicked={(src, name) => void handlePick(src, name)}
-            onError={(message) => push(message, 'error')}
-            onGenerate={() => void generate()}
-            onReset={() => {
-              setResult(null);
-            }}
+            onPicked={handlePicked}
+            onError={handleError}
+            onGenerate={handleGenerateClick}
+            onReset={handleReset}
             onClear={clearImage}
             canGenerate={modelState.stage === 'ready' && image != null && !running}
             running={running}
@@ -443,7 +507,7 @@ export default function App() {
             onRenderOptionsChange={setRenderOptions}
             notify={(message, kind) => push(message, kind)}
             onNextPhoto={clearImage}
-            onRegenerate={() => void generate()}
+            onRegenerate={handleGenerateClick}
             busy={running}
           />
         )}

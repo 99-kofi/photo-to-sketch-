@@ -32,6 +32,9 @@ export function CameraCapture({ onPicked, onError, disabled }: Props) {
           await videoRef.current.play();
         }
       } catch (err) {
+        // Closing the modal aborts play() while the stream is tearing down —
+        // that is not a camera failure and must not raise an error toast.
+        if (cancelled) return;
         onError(`Camera unavailable: ${(err as Error).message}. You can still pick a photo instead.`);
         setOpen(false);
       }
